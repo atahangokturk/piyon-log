@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Piyon Log — Rapor</title>
+<link rel="icon" type="image/png" href="/favicon.png" />
+<style>
+  :root {
+    --text: #1c2128;
+    --text-dim: #57606a;
+    --text-faint: #8b949e;
+    --border: #e1e4e8;
+    --accent: #3a5ac9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 48px 64px;
+    max-width: 780px;
+    margin: 0 auto;
+    background: #ffffff;
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Inter, sans-serif;
+    line-height: 1.5;
+  }
+  .toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .toolbar button {
+    padding: 7px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: #f6f8fa;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .toolbar button:hover { background: #eceff2; }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--text-faint);
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 32px;
+  }
+  .summary-cell {
+    background: #fff;
+    padding: 12px 14px;
+  }
+  .summary-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+  }
+  .summary-value {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  h2 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+    margin: 32px 0 14px;
+  }
+  .entry {
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f2f4;
+    font-size: 13.5px;
+    break-inside: avoid;
+  }
+  .entry-meta {
+    color: var(--text-faint);
+    font-size: 12px;
+    margin-bottom: 2px;
+  }
+  .entry-title { font-weight: 500; }
+  .entry-text {
+    margin-top: 4px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    font-size: 13px;
+  }
+  .empty { color: var(--text-faint); font-size: 13px; }
+
+  @media print {
+    .toolbar { display: none; }
+    body { padding: 0; max-width: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="print-btn" type="button">Yazdır / PDF olarak kaydet</button>
+  </div>
+
+  <h1>Piyon Log — Günlük Rapor</h1>
+  <div class="subtitle" id="subtitle">yükleniyor…</div>
+
+  <div class="summary" id="summary"></div>
+
+  <h2>Zaman çizelgesi</h2>
+  <div id="timeline"></div>
+
+  <h2>Notlar / Yazdıkların</h2>
+  <div id="notes"></div>
+
+<script>
+  const AY_ADLARI = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+
+  function formatSure(saniye) {
+    saniye = Math.max(0, Math.floor(saniye || 0));
+    const saat = Math.floor(saniye / 3600);
+    const dakika = Math.floor((saniye % 3600) / 60);
+    if (saat && dakika) return `${saat} saat ${dakika} dakika`;
+    if (saat) return `${saat} saat`;
+    if (dakika) return `${dakika} dakika`;
+    return "1 dakikadan az";
+  }
+
+  function formatSaat(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function formatBaslikTarih(dateStr) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return `${d} ${AY_ADLARI[m - 1]} ${y}`;
+  }
+
+  function maxKey(obj) {
+    const entries = Object.entries(obj || {});
+    if (entries.length === 0) return null;
+    return entries.reduce((a, b) => (b[1] > a[1] ? b : a));
+  }
+
+  async function load() {
+    const params = new URLSearchParams(location.search);
+    const dateStr = params.get("date") || new Date().toISOString().slice(0, 10);
+
+    const res = await fetch(`/api/today?date=${dateStr}`, { cache: "no-store" });
+    const data = await res.json();
+
+    document.getElementById("subtitle").textContent = formatBaslikTarih(data.date);
+
+    const topProject = maxKey(data.project_totals);
+    const topApp = maxKey(data.app_totals);
+
+    const summary = document.getElementById("summary");
+    summary.innerHTML = "";
+    const cells = [
+      ["Toplam süre", formatSure(data.toplam_sure)],
+      ["Oturum", String(data.sessions.length)],
+      ["En çok proje", topProject ? `${topProject[0]} (${formatSure(topProject[1])})` : "—"],
+      ["En çok uygulama", topApp ? `${topApp[0]} (${formatSure(topApp[1])})` : "—"],
+    ];
+    for (const [label, value] of cells) {
+      const cell = document.createElement("div");
+      cell.className = "summary-cell";
+      cell.innerHTML = `<div class="summary-label">${label}</div><div class="summary-value">${value}</div>`;
+      summary.appendChild(cell);
+    }
+
+    const timeline = document.getElementById("timeline");
+    timeline.innerHTML = "";
+    if (data.sessions.length === 0) {
+      timeline.innerHTML = '<div class="empty">Bu gün için kayıt yok.</div>';
+    } else {
+      for (const s of data.sessions) {
+        const row = document.createElement("div");
+        row.className = "entry";
+        const proje = s.project ? ` · ${s.project}` : "";
+        row.innerHTML = `<div class="entry-meta">${formatSaat(s.start_ts)}–${formatSaat(s.end_ts)} · ${s.app || "Bilinmeyen"}${proje} · ${formatSure(s.duration_s)}</div>` +
+          (s.title ? `<div class="entry-title"></div>` : "");
+        if (s.title) row.querySelector(".entry-title").textContent = s.title;
+        timeline.appendChild(row);
+      }
+    }
+
+    const notes = document.getElementById("notes");
+    notes.innerHTML = "";
+    const notlu = data.sessions.filter((s) => s.text && s.text.trim().length >= 20);
+    if (notlu.length === 0) {
+      notes.innerHTML = '<div class="empty">Bu gün için not yok.</div>';
+    } else {
+      for (const s of notlu) {
+        const row = document.createElement("div");
+        row.className = "entry";
+        row.innerHTML = `<div class="entry-meta">${formatSaat(s.start_ts)} · ${s.app || "Bilinmeyen"}</div><div class="entry-text"></div>`;
+        row.querySelector(".entry-text").textContent = s.text.trim();
+        notes.appendChild(row);
+      }
+    }
+  }
+
+  document.getElementById("print-btn").addEventListener("click", () => window.print());
+  load();
+</script>
+</body>
+</html>

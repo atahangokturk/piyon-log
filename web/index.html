@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Piyon Log</title>
+<link rel="icon" type="image/png" href="/favicon.png" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-row">
+      <div class="brand">
+        <span class="brand-mark">▣</span>
+        <span class="brand-name">Piyon Log</span>
+      </div>
+      <div class="topbar-right">
+        <div class="search-box">
+          <input id="search-input" type="text" placeholder="geçmiş günlerde ara…" autocomplete="off" />
+          <button id="search-clear" class="pill-btn" type="button" title="Aramayı temizle" hidden>✕</button>
+        </div>
+        <div class="status" id="status">
+          <span class="dot"></span>
+          <span id="status-text">bağlanıyor…</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="stats-band">
+    <section class="container stats" id="stats">
+      <div class="stat-card">
+        <div class="stat-label">Toplam süre</div>
+        <div class="stat-value" id="stat-total">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Oturum</div>
+        <div class="stat-value" id="stat-count">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Odak skoru</div>
+        <div class="stat-value" id="stat-focus">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">En çok proje</div>
+        <div class="stat-value" id="stat-project">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">En çok uygulama</div>
+        <div class="stat-value" id="stat-app">—</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="chart-band">
+    <section class="container chart-section">
+      <div class="chart-header">Proje dağılımı</div>
+      <div class="chart" id="chart"></div>
+    </section>
+  </div>
+
+  <div class="heatmap-band">
+    <section class="container heatmap-section">
+      <div class="chart-header">Son 30 gün</div>
+      <div class="heatmap" id="heatmap"></div>
+    </section>
+  </div>
+
+  <main class="log-panel">
+    <div class="container log-panel-inner">
+      <div class="log-panel-header">
+        <div class="header-left">
+          <div class="view-tabs" id="view-tabs">
+            <button id="tab-flow" class="tab-btn active" type="button">Akış</button>
+            <button id="tab-projects" class="tab-btn" type="button">Projeler</button>
+            <button id="tab-apps" class="tab-btn" type="button">Uygulamalar</button>
+          </div>
+          <span id="log-panel-title" hidden></span>
+        </div>
+        <div class="header-controls" id="header-controls">
+          <div class="date-nav" id="date-nav">
+            <button id="date-prev" class="date-nav-btn" type="button" title="Önceki gün" aria-label="Önceki gün">‹</button>
+            <span id="log-date">—</span>
+            <button id="date-next" class="date-nav-btn" type="button" title="Sonraki gün" aria-label="Sonraki gün">›</button>
+          </div>
+          <div class="report-actions">
+            <button id="dl-md" class="pill-btn" type="button" title="Markdown olarak indir">.md indir</button>
+            <button id="dl-pdf" class="pill-btn" type="button" title="Yazdır / PDF olarak kaydet">PDF</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="project-manager" id="project-manager" hidden>
+        <div class="pm-add">
+          <input id="pm-keyword" type="text" placeholder="anahtar kelime (pencere başlığında aranır)" autocomplete="off" />
+          <input id="pm-project" type="text" placeholder="proje adı" autocomplete="off" />
+          <button id="pm-add-btn" class="pill-btn" type="button">+ ekle</button>
+        </div>
+        <div class="pm-list" id="pm-list"></div>
+      </div>
+
+      <div class="log" id="log">
+        <div class="log-empty" id="log-empty">Henüz kayıt yok. Piyon Log çalıştığında oturumların ve yazdıkların burada kart kart akacak.</div>
+      </div>
+    </div>
+  </main>
+
+<script src="/app.js"></script>
+</body>
+</html>

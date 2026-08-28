@@ -1,0 +1,20 @@
+# Kişisel veri - ASLA paylaşılmamalı (aktivite kayıtları, yazılan metinler)
+data/
+reports/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Derleme çıktıları
+build/
+dist/
+*.spec.bak
+
+# Düzenleyici/OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
