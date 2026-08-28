@@ -2,13 +2,19 @@
 Piyon Log - SQLite veritabanı katmanı.
 
 Oturumların (session) yazılması ve raporlama için okunması burada yapılır.
+Veritabanı SQLCipher ile şifrelenir (bkz. crypto_key.py); anahtar bu Windows
+hesabına DPAPI ile bağlı olarak saklanır.
 """
 
-import sqlite3
+import shutil
+import sqlite3  # sadece eski düz-metin veritabanını taşımak için kullanılır
 from contextlib import contextmanager
 from datetime import date, timedelta
 
+from sqlcipher3 import dbapi2 as sqlcipher
+
 import config
+import crypto_key
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -49,11 +55,62 @@ def _seed_project_keywords_if_empty():
         conn.commit()
 
 
+def _is_plaintext_sqlite(path) -> bool:
+    """Dosya, standart (şifresiz) sqlite3 ile açılabiliyor mu?"""
+    try:
+        conn = sqlite3.connect(str(path))
+        conn.execute("SELECT count(*) FROM sqlite_master")
+        conn.close()
+        return True
+    except sqlite3.DatabaseError:
+        return False
+
+
+def _migrate_plaintext_to_encrypted(key: str):
+    """Eski, şifresiz bir data/log.db varsa SQLCipher ile şifreli hâline taşır.
+
+    Orijinal dosya `log.db.bak` olarak korunur; taşıma sırasında herhangi bir
+    sorun olursa hiçbir şey silinmez, sadece taşıma atlanır.
+    """
+    path = config.DB_PATH
+    if not path.exists() or not _is_plaintext_sqlite(path):
+        return
+
+    backup_path = path.with_suffix(".db.bak")
+    shutil.copy2(path, backup_path)
+
+    tmp_path = path.with_suffix(".db.encrypting")
+    if tmp_path.exists():
+        tmp_path.unlink()
+
+    conn = sqlcipher.connect(str(path))
+    try:
+        conn.execute("ATTACH DATABASE ? AS encrypted KEY ?", (str(tmp_path), key))
+        conn.execute("SELECT sqlcipher_export('encrypted')")
+        conn.execute("DETACH DATABASE encrypted")
+    except sqlcipher.OperationalError:
+        # Bazı sqlcipher3 sürümlerinde ATTACH ... KEY parametreli sorguyu
+        # desteklemiyor; anahtar hex olduğundan doğrudan gömmek güvenlidir.
+        conn.execute(f'ATTACH DATABASE ? AS encrypted KEY "{key}"', (str(tmp_path),))
+        conn.execute("SELECT sqlcipher_export('encrypted')")
+        conn.execute("DETACH DATABASE encrypted")
+    finally:
+        conn.close()
+
+    path.unlink()
+    tmp_path.rename(path)
+
+
 @contextmanager
 def get_connection():
-    """DB dosyasının bulunduğu klasörün var olduğundan emin olup bağlantı açar."""
+    """DB dosyasının bulunduğu klasörün var olduğundan emin olup şifreli bağlantı açar."""
     config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.DB_PATH)
+    key = crypto_key.get_or_create_key()
+
+    conn = sqlcipher.connect(str(config.DB_PATH))
+    # PRAGMA parametreli sorguyu desteklemez; anahtar secrets.token_hex ile
+    # üretildiği için yalnızca [0-9a-f] içerir, doğrudan gömülmesi güvenlidir.
+    conn.execute(f'PRAGMA key = "{key}"')
     try:
         yield conn
     finally:
@@ -61,7 +118,15 @@ def get_connection():
 
 
 def init_db():
-    """Veritabanı ve tabloları (yoksa) oluşturur."""
+    """Veritabanı ve tabloları (yoksa) oluşturur.
+
+    Eski, şifresiz bir veritabanı bulunursa (önceki sürümlerden kalma)
+    burada bir kereliğine şifreli hâle taşınır.
+    """
+    config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    key = crypto_key.get_or_create_key()
+    _migrate_plaintext_to_encrypted(key)
+
     with get_connection() as conn:
         conn.executescript(SCHEMA)
         conn.commit()
@@ -88,7 +153,7 @@ def insert_session(session: dict):
 def get_sessions_for_day(date_str: str):
     """'2026-08-28' formatındaki gün için tüm oturumları başlangıç zamanına göre döner."""
     with get_connection() as conn:
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlcipher.Row
         cur = conn.execute(
             """
             SELECT * FROM sessions
@@ -165,7 +230,7 @@ def search_sessions(
     params.append(limit)
 
     with get_connection() as conn:
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlcipher.Row
         cur = conn.execute(
             f"SELECT * FROM sessions {where} ORDER BY start_ts DESC LIMIT ?",
             params,
@@ -186,7 +251,7 @@ def update_session_project(session_id: int, project: str | None):
 def get_project_keywords():
     """Tüm proje eşleştirme kurallarını döner: [{id, keyword, project}, ...]."""
     with get_connection() as conn:
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlcipher.Row
         cur = conn.execute("SELECT id, keyword, project FROM project_keywords ORDER BY project, keyword")
         return [dict(row) for row in cur.fetchall()]
 

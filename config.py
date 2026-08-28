@@ -31,6 +31,12 @@ EXCLUDED_APPS = [
     "keepassxc.exe",
 ]
 
+# Piyon Log'un KENDİ penceresi: bu uygulama hiç oturum olarak kaydedilmez
+# (ne süre ne metin). Kendi izleyicinize bakma süreniz gerçek aktivite
+# sayılmaz; kaydedilirse "Piyon Log" diye tuhaf, kendine referans veren
+# bir proje/uygulama olarak listelere karışır.
+SELF_APP_NAMES = ["piyonlog.exe"]
+
 # --- Başlığında bu kelimeler geçen pencerelerde metin toplama ---
 EXCLUDED_TITLE_KEYWORDS = [
     "banka",

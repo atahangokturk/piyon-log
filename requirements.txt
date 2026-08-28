@@ -4,3 +4,4 @@ psutil
 pynput
 requests
 pywebview
+sqlcipher3

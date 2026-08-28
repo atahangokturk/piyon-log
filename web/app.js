@@ -31,6 +31,7 @@ const state = {
 const el = {
   status: document.getElementById("status"),
   statusText: document.getElementById("status-text"),
+  refreshBtn: document.getElementById("refresh-btn"),
   statTotal: document.getElementById("stat-total"),
   statCount: document.getElementById("stat-count"),
   statFocus: document.getElementById("stat-focus"),
@@ -584,6 +585,16 @@ el.searchInput.addEventListener("input", () => {
     if (q) runQuery({ q }, `"${q}" için sonuçlar`);
     else exitQuery();
   }, QUERY_DEBOUNCE_MS);
+});
+
+el.refreshBtn.addEventListener("click", () => location.reload());
+
+// Adres çubuğu/menü olmayan native pencerede F5 varsayılan olarak çalışmayabilir.
+window.addEventListener("keydown", (e) => {
+  if (e.key === "F5" || (e.ctrlKey && e.key.toLowerCase() === "r")) {
+    e.preventDefault();
+    location.reload();
+  }
 });
 
 el.searchClear.addEventListener("click", () => {

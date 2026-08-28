@@ -200,14 +200,20 @@ kontrol etmek iyi bir alışkanlıktır.
 
 ## `data/log.db` hakkında
 
-Bu, tüm oturum kayıtlarınızın tutulduğu tek SQLite dosyasıdır. **Program
+Bu, tüm oturum kayıtlarınızın tutulduğu tek veritabanı dosyasıdır. **Program
 hiçbir zaman, hiçbir koşulda kendiliğinden bu dosyadaki kayıtları silmez**
 — ne toplayıcıda (`collector.py`), ne panelde (`ui_server.py`), ne de
 raporlamada (`digest.py`) böyle bir kod yoktur. Toplayıcı çalıştığı sürece
 veriler sadece birikir. Dosyayı silmenin tek yolu, siz kendiniz elle
-silmenizdir (ya da geliştirme sırasında test verisi temizlemek için
-elle çalıştırılan komutlarla — geliştirme tamamlandı, bundan sonra
-dokunulmuyor).
+silmenizdir.
+
+**Şifreleme:** Veritabanı [SQLCipher](https://www.zetetic.net/sqlcipher/)
+ile şifrelenir. Anahtar, ilk çalıştırmada rastgele üretilir ve Windows
+DPAPI (`crypto_key.py`) ile bu Windows hesabına bağlı olarak `data/key.bin`
+içinde saklanır — dosyalar kopyalansa bile başka bir bilgisayarda veya
+başka bir Windows hesabında açılamaz. Önceki bir sürümden şifresiz bir
+`log.db` geliyorsa, ilk açılışta otomatik olarak şifreli hâle taşınır ve
+orijinali `log.db.bak` olarak saklanır.
 
 ## Windows Defender istisnası
 
@@ -278,11 +284,13 @@ otomatik olarak şablon tabanlı rapora düşer; hiçbir şey çökmez.
 
 - Tüm veri lokaldir, hiçbir ağ isteği yapılmaz (Ollama hariç, o da yalnızca
   `localhost`'a).
-- `data/log.db` hassas veri içerebilir. İleride SQLCipher gibi bir
-  çözümle şifrelenmesi düşünülebilir (şu an için opsiyonel, uygulanmadı).
+- `data/log.db` SQLCipher ile şifrelenir, anahtar bu Windows hesabına DPAPI
+  ile bağlıdır (bkz. yukarıdaki "`data/log.db` hakkında").
 - Dışlama listesi birincil korumadır; redaksiyon kusursuz değildir. Hassas
   metin girdiğiniz uygulamaları `config.py`'ye eklemek, redaksiyona
   güvenmekten daha güvenlidir.
+- Piyon Log kendi penceresini (`PiyonLog.exe`) hiç kaydetmez —
+  `config.SELF_APP_NAMES` ile hariç tutulur.
 
 ## Proje yapısı
 
@@ -292,6 +300,7 @@ piyon-log/
 ├── main.py                  # sadece toplayıcı (bağımsız kullanım için)
 ├── collector.py             # aktif pencere + klavye/fare izleme, oturum mantığı
 ├── redact.py                # metin sansürleme / temizleme katmanı
+├── crypto_key.py            # DPAPI ile korunan veritabanı şifreleme anahtarı
 ├── db.py                    # SQLite şema, yazma/okuma, proje kuralları
 ├── digest.py                # akşam raporu üretici (şablon + opsiyonel Ollama)
 ├── ui_server.py             # sadece panel (bağımsız kullanım için) + HTTP API

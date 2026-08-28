@@ -49,6 +49,8 @@ def is_excluded(active) -> bool:
     excluded_apps = [a.lower() for a in config.EXCLUDED_APPS]
     if app and app.lower() in excluded_apps:
         return True
+    if app and app.lower() in config.SELF_APP_NAMES:
+        return True
     if title:
         lowered = title.lower()
         for keyword in config.EXCLUDED_TITLE_KEYWORDS:
@@ -210,7 +212,9 @@ class Collector:
         end_dt = datetime.fromisoformat(end_ts)
         duration_s = int((end_dt - start_dt).total_seconds())
 
-        if duration_s >= 1 and self.active is not None:
+        is_self = self.active is not None and self.active[0].lower() in config.SELF_APP_NAMES
+
+        if duration_s >= 1 and self.active is not None and not is_self:
             app, title = self.active
             safe_title = redact.redact(title)
             safe_text = redact.redact(self.buffer) if self.buffer else ""
