@@ -6,6 +6,7 @@ Oturumların (session) yazılması ve raporlama için okunması burada yapılır
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import date, timedelta
 
 import config
 
@@ -249,20 +250,25 @@ def get_app_summary():
 
 
 def get_daily_totals(days: int = 30):
-    """Son N gün için günlük toplam süreyi döner: [{date, total_seconds}, ...] (eskiden yeniye)."""
+    """Son N gün için günlük toplam süreyi döner: [{date, total_seconds}, ...]
+    (eskiden yeniye). Veri olmayan günler de 0 saniye olarak dahil edilir —
+    ısı haritasının her zaman tam N günlük bir grid olması içindir."""
+    today = date.today()
+    date_list = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+
     with get_connection() as conn:
         cur = conn.execute(
             """
             SELECT substr(start_ts, 1, 10) AS gun, SUM(duration_s) AS toplam
             FROM sessions
+            WHERE substr(start_ts, 1, 10) >= ?
             GROUP BY gun
-            ORDER BY gun DESC
-            LIMIT ?
             """,
-            (days,),
+            (date_list[0],),
         )
-        rows = [{"date": row[0], "total_seconds": row[1]} for row in cur.fetchall()]
-        return list(reversed(rows))
+        totals = {row[0]: row[1] for row in cur.fetchall()}
+
+    return [{"date": d, "total_seconds": totals.get(d, 0)} for d in date_list]
 
 
 def get_project_summary():

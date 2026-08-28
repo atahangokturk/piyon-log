@@ -11,6 +11,7 @@ venv/
 # Derleme çıktıları
 build/
 dist/
+installer/
 *.spec.bak
 
 # Düzenleyici/OS
