@@ -14,6 +14,9 @@ dist/
 installer/
 *.spec.bak
 
+# Yerel araç/oturum dosyaları
+.claude/
+
 # Düzenleyici/OS
 .vscode/
 .idea/
