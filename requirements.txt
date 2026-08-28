@@ -3,3 +3,4 @@ pywin32
 psutil
 pynput
 requests
+pywebview
