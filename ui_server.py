@@ -231,10 +231,16 @@ def open_app_window(url: str):
     """Mümkünse pencereyi bir masaüstü uygulaması gibi (adres çubuksuz) açar."""
     edge = _find_edge()
     if edge:
+        # stdin'i de DEVNULL'a bağlamak şart: .exe olarak paketlenmiş
+        # (--windowed) sürümde konsol/stdin olmadığından, belirtilmezse
+        # Popen çağrısı süreci kapanmayan bir tutamaca (handle) takılıp
+        # asılı bırakabiliyor.
         subprocess.Popen(
             [edge, f"--app={url}", "--window-size=1180,760"],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            close_fds=True,
         )
     else:
         webbrowser.open(url)

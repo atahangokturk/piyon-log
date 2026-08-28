@@ -5,11 +5,21 @@ Tüm kişiselleştirme (dışlama listeleri, proje eşleştirme, zamanlama, rapo
 modeli ayarları) burada toplanır. Diğer modüller ayar için buraya bakar.
 """
 
+import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "data" / "log.db"
-REPORTS_DIR = BASE_DIR / "reports"
+if getattr(sys, "frozen", False):
+    # PyInstaller ile paketlenmiş .exe içinde çalışıyor.
+    # APP_DIR: .exe'nin yanı - veri/rapor gibi yazılabilir şeyler buraya.
+    # BASE_DIR: pakete gömülü salt-okunur varlıklar (web/ klasörü vb.).
+    APP_DIR = Path(sys.executable).parent
+    BASE_DIR = Path(sys._MEIPASS)
+else:
+    APP_DIR = Path(__file__).parent
+    BASE_DIR = APP_DIR
+
+DB_PATH = APP_DIR / "data" / "log.db"
+REPORTS_DIR = APP_DIR / "reports"
 
 # --- Metin toplanmayacak uygulamalar (birincil koruma) ---
 # Buradaki uygulamalar aktifken klavye metni HİÇ toplanmaz; sadece süre ve
