@@ -19,6 +19,8 @@ else:
     BASE_DIR = APP_DIR
 
 DB_PATH = APP_DIR / "data" / "log.db"
+
+APP_VERSION = "1.1.0"
 REPORTS_DIR = APP_DIR / "reports"
 
 # --- Metin toplanmayacak uygulamalar (birincil koruma) ---

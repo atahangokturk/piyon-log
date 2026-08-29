@@ -59,6 +59,11 @@ def is_excluded(active) -> bool:
     return False
 
 
+# Çalışan toplayıcı örneğine, aynı süreç içindeki web sunucusunun "şu an"
+# kartı için erişebilmesi amacıyla tutulur (bkz. get_current_state()).
+CURRENT_INSTANCE = None
+
+
 class Collector:
     """Aktif pencere + klavye izlemeyi yürüten ve oturumları veritabanına yazan sınıf."""
 
@@ -77,12 +82,14 @@ class Collector:
     # --- yaşam döngüsü ---
 
     def start(self):
+        global CURRENT_INSTANCE
         db.init_db()
         self.active = get_active_window()
         self.session_start = now_iso()
         self.last_activity = time.time()
         self.last_title_change_ts = time.time()
         self.running = True
+        CURRENT_INSTANCE = self
 
         self._keyboard_listener = keyboard.Listener(on_press=self._on_press)
         self._keyboard_listener.start()
@@ -104,6 +111,7 @@ class Collector:
             self.stop()
 
     def stop(self):
+        global CURRENT_INSTANCE
         if not self.running:
             return
         self.running = False
@@ -113,7 +121,24 @@ class Collector:
             self._mouse_listener.stop()
         with self._lock:
             self._flush_locked(self.active)
+        if CURRENT_INSTANCE is self:
+            CURRENT_INSTANCE = None
         print("[Piyon Log] Toplayıcı durduruldu.")
+
+    def get_current_state(self):
+        """Şu anki (henüz kapanmamış) oturumun anlık görüntüsünü döner."""
+        with self._lock:
+            if not self.running or self.active is None:
+                return None
+            app, title = self.active
+            visible_title = "" if is_excluded(self.active) else title
+            safe_title = redact.redact(visible_title) if visible_title else ""
+            return {
+                "app": app,
+                "title": safe_title,
+                "project": db.match_project(title) if title else None,
+                "start_ts": self.session_start,
+            }
 
     # --- iç mantık ---
 
@@ -237,3 +262,10 @@ class Collector:
         self.session_start = now_iso()
         self.last_title_change_ts = time.time()
         self.idle_flushed = False
+
+
+def get_current_state():
+    """Aynı süreçte çalışan bir toplayıcı varsa canlı durumunu döner, yoksa None."""
+    if CURRENT_INSTANCE is None:
+        return None
+    return CURRENT_INSTANCE.get_current_state()

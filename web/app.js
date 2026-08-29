@@ -29,6 +29,7 @@ const state = {
   projects: [],
   expandedBlocks: new Set(),
   lastRenderKey: "",
+  dailyMetrics: [],
 };
 
 const el = {
@@ -51,6 +52,14 @@ const el = {
   statFocusTime: document.getElementById("stat-focus-time"),
   statDeepWork: document.getElementById("stat-deep-work"),
   statSwitches: document.getElementById("stat-switches"),
+  deltaTotal: document.getElementById("delta-total"),
+  deltaFocusTime: document.getElementById("delta-focus-time"),
+  deltaDeepWork: document.getElementById("delta-deep-work"),
+  deltaSwitches: document.getElementById("delta-switches"),
+  sparkTotal: document.getElementById("spark-total"),
+  sparkFocusTime: document.getElementById("spark-focus-time"),
+  sparkDeepWork: document.getElementById("spark-deep-work"),
+  sparkSwitches: document.getElementById("spark-switches"),
 
   focusRingFill: document.getElementById("focus-ring-fill"),
   focusRingValue: document.getElementById("focus-ring-value"),
@@ -58,6 +67,12 @@ const el = {
   dayRibbon: document.getElementById("day-ribbon"),
   ribbonLegend: document.getElementById("ribbon-legend"),
   ribbonTicks: document.getElementById("ribbon-ticks"),
+
+  nowCard: document.getElementById("now-card"),
+  nowApp: document.getElementById("now-app"),
+  nowProject: document.getElementById("now-project"),
+  nowTitle: document.getElementById("now-title"),
+  nowTimer: document.getElementById("now-timer"),
 
   log: document.getElementById("log"),
   logEmpty: document.getElementById("log-empty"),
@@ -69,6 +84,12 @@ const el = {
   nudgeBtn: document.getElementById("nudge-btn"),
 
   heatmap: document.getElementById("heatmap"),
+  heatmapToggle: document.getElementById("heatmap-toggle"),
+
+  settingsVersion: document.getElementById("settings-version"),
+  settingsDataDir: document.getElementById("settings-data-dir"),
+  settingsOpenFolder: document.getElementById("settings-open-folder"),
+  settingsThemeBtn: document.getElementById("settings-theme-btn"),
   appsLog: document.getElementById("apps-log"),
   appsLogEmpty: document.getElementById("apps-log-empty"),
 
@@ -77,6 +98,7 @@ const el = {
   pmProject: document.getElementById("pm-project"),
   pmProjectList: document.getElementById("pm-project-list"),
   pmAddBtn: document.getElementById("pm-add-btn"),
+  pmFeedback: document.getElementById("pm-feedback"),
   pmList: document.getElementById("pm-list"),
   projectsLog: document.getElementById("projects-log"),
   projectsLogEmpty: document.getElementById("projects-log-empty"),
@@ -170,6 +192,60 @@ function renderStats(data) {
   el.statSwitches.textContent = data.sessions.length;
   el.logDate.textContent = formatGun(data.date);
   el.dateNext.disabled = data.date >= todayStr();
+
+  if (data.date === todayStr()) {
+    renderMetricTrend(el.deltaTotal, el.sparkTotal, "total_seconds");
+    renderMetricTrend(el.deltaFocusTime, el.sparkFocusTime, "focus_seconds");
+    renderMetricTrend(el.deltaDeepWork, el.sparkDeepWork, "deep_work_seconds");
+    renderMetricTrend(el.deltaSwitches, el.sparkSwitches, "session_count");
+  } else {
+    for (const c of [el.deltaTotal, el.deltaFocusTime, el.deltaDeepWork, el.deltaSwitches]) c.textContent = "";
+    for (const c of [el.sparkTotal, el.sparkFocusTime, el.sparkDeepWork, el.sparkSwitches]) c.innerHTML = "";
+  }
+}
+
+async function loadDailyMetrics() {
+  try {
+    const res = await fetch("/api/daily-metrics?days=14", { cache: "no-store" });
+    const data = await res.json();
+    state.dailyMetrics = data.days || [];
+  } catch (e) {
+    state.dailyMetrics = [];
+  }
+}
+
+function renderMetricTrend(deltaEl, sparkEl, key) {
+  const series = state.dailyMetrics;
+  deltaEl.textContent = "";
+  deltaEl.className = "stat-delta";
+  sparkEl.innerHTML = "";
+  if (!series || series.length < 2) return;
+
+  const todayVal = series[series.length - 1][key];
+  const yestVal = series[series.length - 2][key];
+  if (yestVal > 0) {
+    const pct = Math.round(((todayVal - yestVal) / yestVal) * 100);
+    deltaEl.textContent = `${pct >= 0 ? "+" : ""}${pct}%`;
+    deltaEl.classList.add(pct >= 0 ? "up" : "down");
+  }
+
+  const values = series.map((d) => d[key]);
+  const max = Math.max(1, ...values);
+  const w = 100;
+  const h = 24;
+  const step = values.length > 1 ? w / (values.length - 1) : 0;
+  const points = values.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * h).toFixed(1)}`).join(" ");
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  poly.setAttribute("points", points);
+  poly.setAttribute("fill", "none");
+  poly.setAttribute("stroke", "currentColor");
+  poly.setAttribute("stroke-width", "2");
+  svg.appendChild(poly);
+  sparkEl.appendChild(svg);
 }
 
 function renderFocusRing(data) {
@@ -778,9 +854,12 @@ async function poll() {
 
 // --- Analitik sayfası ---
 
+let heatmapExpanded = false;
+
 async function loadHeatmap() {
   try {
-    const res = await fetch("/api/daily-totals?days=30", { cache: "no-store" });
+    const days = heatmapExpanded ? 365 : 30;
+    const res = await fetch(`/api/daily-totals?days=${days}`, { cache: "no-store" });
     const data = await res.json();
     renderHeatmap(data.days || []);
   } catch (e) {
@@ -788,8 +867,15 @@ async function loadHeatmap() {
   }
 }
 
+el.heatmapToggle.addEventListener("click", () => {
+  heatmapExpanded = !heatmapExpanded;
+  el.heatmapToggle.textContent = heatmapExpanded ? "◂ Son 30 gün" : "365 gün →";
+  loadHeatmap();
+});
+
 function renderHeatmap(days) {
   el.heatmap.innerHTML = "";
+  el.heatmap.classList.toggle("heatmap-grid", heatmapExpanded);
   const max = Math.max(1, ...days.map((d) => d.total_seconds));
   for (const d of days) {
     const cell = document.createElement("div");
@@ -913,15 +999,27 @@ el.pmAddBtn.addEventListener("click", async () => {
   const project = el.pmProject.value.trim();
   if (!keyword || !project) return;
   try {
-    await fetch("/api/project-keywords/add", {
+    const res = await fetch("/api/project-keywords/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ keyword, project }),
     });
+    const data = await res.json();
     el.pmKeyword.value = "";
     el.pmProject.value = "";
     loadProjectKeywords();
     loadProjects();
+
+    el.pmFeedback.hidden = false;
+    el.pmFeedback.textContent = data.updated > 0
+      ? `Kural eklendi — ${data.updated} eski kayıt da "${project}" projesine atandı.`
+      : "Kural eklendi.";
+    clearTimeout(el.pmFeedback._hideTimer);
+    el.pmFeedback._hideTimer = setTimeout(() => {
+      el.pmFeedback.hidden = true;
+    }, 4000);
+
+    if (state.page === "home") poll();
   } catch (e) {
     // sessizce yut
   }
@@ -942,8 +1040,27 @@ function renderBaseView() {
   } else if (state.page === "projects") {
     loadProjectKeywords();
     loadProjectSummary();
+  } else if (state.page === "settings") {
+    loadSettingsInfo();
   }
 }
+
+async function loadSettingsInfo() {
+  try {
+    const res = await fetch("/api/info", { cache: "no-store" });
+    const data = await res.json();
+    el.settingsVersion.textContent = data.version || "—";
+    el.settingsDataDir.textContent = data.data_dir || "—";
+  } catch (e) {
+    // sessizce geç
+  }
+}
+
+el.settingsOpenFolder.addEventListener("click", () => {
+  fetch("/api/open-data-folder", { method: "POST" }).catch(() => {});
+});
+
+el.settingsThemeBtn.addEventListener("click", () => el.themeToggle.click());
 
 function setPage(page) {
   state.page = page;
@@ -955,7 +1072,8 @@ function setPage(page) {
   const isHome = page === "home";
   el.dateNav.style.visibility = isHome ? "visible" : "hidden";
   el.reportActions.style.visibility = isHome ? "visible" : "hidden";
-  renderBaseView();
+  if (isHome) loadDailyMetrics().then(renderBaseView);
+  else renderBaseView();
 }
 
 document.querySelectorAll(".sidebar-item").forEach((btn) => {
@@ -1075,6 +1193,50 @@ el.themeToggle.addEventListener("click", () => {
 });
 
 initTheme();
+
+// --- "şu an" canlı kartı ---
+
+let nowCardStart = null;
+
+function updateNowTimer() {
+  if (!nowCardStart) return;
+  const elapsed = Math.max(0, Math.floor((Date.now() - nowCardStart.getTime()) / 1000));
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
+  el.nowTimer.textContent = `${mm}:${ss}`;
+}
+
+async function pollCurrent() {
+  if (state.page !== "home" || state.querying || state.currentDate !== todayStr()) {
+    el.nowCard.hidden = true;
+    nowCardStart = null;
+    return;
+  }
+  try {
+    const res = await fetch("/api/current", { cache: "no-store" });
+    const data = await res.json();
+    if (!data.active || !data.current) {
+      el.nowCard.hidden = true;
+      nowCardStart = null;
+      return;
+    }
+    const cur = data.current;
+    el.nowCard.hidden = false;
+    el.nowApp.textContent = cur.app || "";
+    el.nowProject.textContent = cur.project ? `· ${cur.project}` : "";
+    const { primary } = cleanTitle(cur.title, cur.app);
+    el.nowTitle.textContent = primary || "";
+    nowCardStart = new Date(cur.start_ts);
+    updateNowTimer();
+  } catch (e) {
+    el.nowCard.hidden = true;
+    nowCardStart = null;
+  }
+}
+
+setInterval(updateNowTimer, 1000);
+setInterval(pollCurrent, POLL_MS);
+pollCurrent();
 
 // --- başlangıç ---
 

@@ -263,11 +263,53 @@ body {
   margin-bottom: 10px;
 }
 
+.panel-card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-card-header-row .panel-card-header {
+  margin-bottom: 0;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 10px);
+  grid-auto-flow: column;
+  grid-auto-columns: 10px;
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.heatmap-grid .heatmap-cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
 .settings-text {
   color: var(--text-dim);
   font-size: 12.5px;
   line-height: 1.6;
   margin: 0 0 8px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-row .settings-text {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- üst satır: istatistikler + odak halkası --- */
@@ -285,10 +327,38 @@ body {
 }
 
 .stat-card {
+  position: relative;
+  overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
+}
+
+.stat-delta {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.stat-delta.up { color: var(--accent); }
+.stat-delta.down { color: var(--text-faint); }
+
+.stat-sparkline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.stat-sparkline svg {
+  width: 100%;
+  height: 100%;
+  color: var(--accent);
 }
 
 .stat-label {
@@ -494,6 +564,67 @@ body {
   margin-bottom: 6px;
 }
 
+/* --- "şu an" canlı kartı --- */
+
+.now-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: 9px;
+  padding: 8px 13px;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.now-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: now-pulse 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes now-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.now-label {
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.now-app {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.now-project {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.now-title {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.now-timer {
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 .side-col {
   display: flex;
   flex-direction: column;
@@ -677,6 +808,12 @@ body {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.pm-feedback {
+  font-size: 11.5px;
+  color: var(--accent);
+  margin-bottom: 10px;
 }
 
 .pm-add input {

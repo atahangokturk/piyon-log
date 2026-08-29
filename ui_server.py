@@ -11,6 +11,7 @@ Kullanım:
 """
 
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -21,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+import collector
 import config
 import db
 import digest
@@ -51,6 +53,10 @@ class PiyonLogHandler(BaseHTTPRequestHandler):
             self._serve_file(WEB_DIR / filename, content_type)
         elif parsed.path == "/api/today":
             self._serve_today(parsed)
+        elif parsed.path == "/api/current":
+            self._serve_current()
+        elif parsed.path == "/api/info":
+            self._serve_info()
         elif parsed.path == "/api/search":
             self._serve_search(parsed)
         elif parsed.path == "/api/projects":
@@ -61,6 +67,8 @@ class PiyonLogHandler(BaseHTTPRequestHandler):
             self._serve_app_summary()
         elif parsed.path == "/api/daily-totals":
             self._serve_daily_totals(parsed)
+        elif parsed.path == "/api/daily-metrics":
+            self._serve_daily_metrics(parsed)
         elif parsed.path == "/api/project-keywords":
             self._serve_project_keywords()
         elif parsed.path == "/api/report.md":
@@ -76,6 +84,8 @@ class PiyonLogHandler(BaseHTTPRequestHandler):
             self._add_project_keyword()
         elif parsed.path == "/api/project-keywords/delete":
             self._delete_project_keyword()
+        elif parsed.path == "/api/open-data-folder":
+            self._open_data_folder()
         else:
             self.send_error(404)
 
@@ -125,6 +135,26 @@ class PiyonLogHandler(BaseHTTPRequestHandler):
         }
         self._send_json(payload)
 
+    def _serve_current(self):
+        state = collector.get_current_state()
+        self._send_json({"active": state is not None, "current": state})
+
+    def _serve_info(self):
+        self._send_json(
+            {
+                "version": config.APP_VERSION,
+                "data_dir": str(config.DB_PATH.parent),
+                "encrypted": True,
+            }
+        )
+
+    def _open_data_folder(self):
+        try:
+            os.startfile(str(config.DB_PATH.parent))
+            self._send_json({"ok": True})
+        except Exception:
+            self._send_json({"ok": False}, status=500)
+
     def _serve_search(self, parsed):
         qs = parse_qs(parsed.query)
         query = qs.get("q", [""])[0].strip()
@@ -153,6 +183,11 @@ class PiyonLogHandler(BaseHTTPRequestHandler):
         days = int(qs.get("days", ["30"])[0])
         self._send_json({"days": db.get_daily_totals(days)})
 
+    def _serve_daily_metrics(self, parsed):
+        qs = parse_qs(parsed.query)
+        days = int(qs.get("days", ["14"])[0])
+        self._send_json({"days": db.get_daily_metrics(days)})
+
     def _serve_project_keywords(self):
         self._send_json({"keywords": db.get_project_keywords()})
 
@@ -168,7 +203,8 @@ class PiyonLogHandler(BaseHTTPRequestHandler):
             return
 
         db.add_project_keyword(keyword, project)
-        self._send_json({"ok": True})
+        updated = db.apply_keyword_retroactively(keyword, project)
+        self._send_json({"ok": True, "updated": updated})
 
     def _delete_project_keyword(self):
         try:

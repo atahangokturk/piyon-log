@@ -61,20 +61,24 @@
       <div class="top-row">
         <div class="stats-row" id="stats-row">
           <div class="stat-card">
-            <div class="stat-label">Toplam Süre</div>
+            <div class="stat-label">Toplam Süre <span class="stat-delta" id="delta-total"></span></div>
             <div class="stat-value" id="stat-total">—</div>
+            <div class="stat-sparkline" id="spark-total"></div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Odak Süresi</div>
+            <div class="stat-label">Odak Süresi <span class="stat-delta" id="delta-focus-time"></span></div>
             <div class="stat-value" id="stat-focus-time">—</div>
+            <div class="stat-sparkline" id="spark-focus-time"></div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Derin Çalışma</div>
+            <div class="stat-label">Derin Çalışma <span class="stat-delta" id="delta-deep-work"></span></div>
             <div class="stat-value" id="stat-deep-work">—</div>
+            <div class="stat-sparkline" id="spark-deep-work"></div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Bağlam Değişimi</div>
+            <div class="stat-label">Bağlam Değişimi <span class="stat-delta" id="delta-switches"></span></div>
             <div class="stat-value" id="stat-switches">—</div>
+            <div class="stat-sparkline" id="spark-switches"></div>
           </div>
         </div>
 
@@ -106,6 +110,14 @@
           <div class="sessions-header">
             <span>Oturumlar</span>
           </div>
+          <div class="now-card" id="now-card" hidden>
+            <span class="now-dot"></span>
+            <span class="now-label">Şu an</span>
+            <span class="now-app" id="now-app"></span>
+            <span class="now-project" id="now-project"></span>
+            <span class="now-title" id="now-title"></span>
+            <span class="now-timer" id="now-timer">00:00</span>
+          </div>
           <div class="log" id="log">
             <div class="log-empty" id="log-empty">Henüz kayıt yok. Piyon Log çalıştığında oturumların ve yazdıkların burada kart kart akacak.</div>
           </div>
@@ -135,7 +147,10 @@
     <!-- ---- Analitik ---- -->
     <section class="page" id="page-analytics" hidden>
       <div class="panel-card">
-        <div class="panel-card-header">Son 30 Gün</div>
+        <div class="panel-card-header-row">
+          <div class="panel-card-header">Son 30 Gün</div>
+          <button class="pill-btn" id="heatmap-toggle" type="button">365 gün →</button>
+        </div>
         <div class="heatmap" id="heatmap"></div>
       </div>
       <div class="panel-card">
@@ -155,6 +170,7 @@
           <datalist id="pm-project-list"></datalist>
           <button id="pm-add-btn" class="pill-btn" type="button">+ ekle</button>
         </div>
+        <div class="pm-feedback" id="pm-feedback" hidden></div>
         <div class="pm-list" id="pm-list"></div>
       </div>
       <div class="log" id="projects-log">
@@ -167,14 +183,35 @@
       <div class="panel-card">
         <div class="panel-card-header">Piyon Log hakkında</div>
         <p class="settings-text">
+          Sürüm <strong id="settings-version">—</strong>
+        </p>
+        <p class="settings-text">
           Tüm veri yalnızca bu bilgisayarda tutulur, hiçbir ağ isteği yapılmaz.
-          Veritabanı SQLCipher ile şifrelenir ve bu Windows hesabına bağlı bir
-          anahtarla korunur.
+          Veritabanı <strong>SQLCipher ile şifrelenir</strong> ve bu Windows
+          hesabına bağlı bir anahtarla korunur.
+        </p>
+        <p class="settings-text">
+          Piyon Log kendi penceresini hiç kaydetmez; kendinizi izleme
+          süreniz veriye karışmaz.
         </p>
         <p class="settings-text">
           Proje eşleştirme kurallarını yönetmek için soldaki
           <strong>Projeler</strong> sayfasına bakabilirsiniz.
         </p>
+      </div>
+      <div class="panel-card">
+        <div class="panel-card-header">Görünüm</div>
+        <div class="settings-row">
+          <span class="settings-text">Tema</span>
+          <button class="pill-btn" id="settings-theme-btn" type="button">Değiştir</button>
+        </div>
+      </div>
+      <div class="panel-card">
+        <div class="panel-card-header">Veri</div>
+        <div class="settings-row">
+          <span class="settings-text" id="settings-data-dir">—</span>
+          <button class="pill-btn" id="settings-open-folder" type="button">Klasörü aç</button>
+        </div>
       </div>
     </section>
 

@@ -287,6 +287,27 @@ def add_project_keyword(keyword: str, project: str):
         conn.commit()
 
 
+def apply_keyword_retroactively(keyword: str, project: str) -> int:
+    """Yeni eklenen bir kuralı GEÇMİŞTEKİ kayıtlara da uygular.
+
+    Yalnızca henüz hiçbir projeye atanmamış (project IS NULL) oturumları
+    günceller — elle veya başka bir kuralla zaten sınıflandırılmış bir
+    kaydın üzerine yazmaz. Güncellenen satır sayısını döner.
+    """
+    like = f"%{keyword.lower().strip()}%"
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            UPDATE sessions
+            SET project = ?
+            WHERE project IS NULL AND LOWER(title) LIKE ?
+            """,
+            (project.strip(), like),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
 def delete_project_keyword(keyword_id: int):
     with get_connection() as conn:
         conn.execute("DELETE FROM project_keywords WHERE id = ?", (keyword_id,))
@@ -341,6 +362,42 @@ def get_daily_totals(days: int = 30):
         totals = {row[0]: row[1] for row in cur.fetchall()}
 
     return [{"date": d, "total_seconds": totals.get(d, 0)} for d in date_list]
+
+
+def get_daily_metrics(days: int = 14):
+    """Son N gün için toplam süre, odak süresi, derin çalışma süresi ve
+    oturum sayısını döner (metrik kartlarındaki mini grafik/karşılaştırma
+    için). Veri olmayan günler sıfırlarla doldurulur."""
+    today = date.today()
+    date_list = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            SELECT
+                substr(start_ts, 1, 10) AS gun,
+                SUM(duration_s) AS toplam,
+                SUM(CASE WHEN duration_s >= ? THEN duration_s ELSE 0 END) AS odakli,
+                SUM(CASE WHEN duration_s >= ? THEN duration_s ELSE 0 END) AS derin,
+                COUNT(*) AS oturum_sayisi
+            FROM sessions
+            WHERE substr(start_ts, 1, 10) >= ?
+            GROUP BY gun
+            """,
+            (config.FOCUS_MIN_SESSION_S, config.DEEP_WORK_MIN_SESSION_S, date_list[0]),
+        )
+        rows = {
+            row[0]: {
+                "total_seconds": row[1],
+                "focus_seconds": row[2],
+                "deep_work_seconds": row[3],
+                "session_count": row[4],
+            }
+            for row in cur.fetchall()
+        }
+
+    empty = {"total_seconds": 0, "focus_seconds": 0, "deep_work_seconds": 0, "session_count": 0}
+    return [{"date": d, **rows.get(d, empty)} for d in date_list]
 
 
 def get_project_summary():
