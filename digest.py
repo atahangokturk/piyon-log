@@ -62,10 +62,16 @@ def compute_focus(sessions: list) -> dict:
     toplam = sum(s["duration_s"] for s in sessions)
     odakli = sum(s["duration_s"] for s in sessions if s["duration_s"] >= config.FOCUS_MIN_SESSION_S)
     oran = round((odakli / toplam) * 100) if toplam else 0
+
+    derin_calisma = [s for s in sessions if s["duration_s"] >= config.DEEP_WORK_MIN_SESSION_S]
+    derin_calisma_saniye = sum(s["duration_s"] for s in derin_calisma)
+
     return {
         "focus_ratio": oran,
         "focus_seconds": odakli,
         "scattered_seconds": toplam - odakli,
+        "deep_work_seconds": derin_calisma_saniye,
+        "deep_work_count": len(derin_calisma),
     }
 
 

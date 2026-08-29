@@ -1,17 +1,19 @@
-// Piyon Log - panel istemcisi. Sunucudan seçili günün verisini periyodik
-// olarak çeker ve sunucu logu tarzında akan bir listeye işler.
+// Piyon Log - panel istemcisi.
 
 const POLL_MS = 2500;
 const QUERY_DEBOUNCE_MS = 350;
 const BADGE_COLORS = [
-  "#5b8cff", "#35d488", "#f5a742", "#e35b8c",
-  "#8c6bff", "#2fc3d8", "#e0c341", "#ff7a5b",
+  "#34d399", "#60a5fa", "#f59e0b", "#f472b6",
+  "#a78bfa", "#2dd4bf", "#facc15", "#fb923c",
 ];
 
 const AY_ADLARI = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
 ];
+
+const PAGE_TITLES = { home: "Bugün", analytics: "Analitik", projects: "Projeler", settings: "Ayarlar" };
+const FOCUS_RING_CIRCUMFERENCE = 2 * Math.PI * 40;
 
 function todayStr() {
   const d = new Date();
@@ -20,48 +22,69 @@ function todayStr() {
 }
 
 const state = {
-  renderedIds: new Set(),
   currentDate: todayStr(),
   followingToday: true,
-  mode: "flow", // 'flow' | 'projects' — hangi sekme aktif
-  querying: false, // arama / proje filtresiyle geçici bir liste mi gösteriliyor
+  page: "home",
+  querying: false,
   projects: [],
+  expandedBlocks: new Set(),
+  lastRenderKey: "",
 };
 
 const el = {
+  pageTitle: document.getElementById("page-title"),
   status: document.getElementById("status"),
   statusText: document.getElementById("status-text"),
   refreshBtn: document.getElementById("refresh-btn"),
-  statTotal: document.getElementById("stat-total"),
-  statCount: document.getElementById("stat-count"),
-  statFocus: document.getElementById("stat-focus"),
-  statProject: document.getElementById("stat-project"),
-  statApp: document.getElementById("stat-app"),
-  logDate: document.getElementById("log-date"),
-  logPanelTitle: document.getElementById("log-panel-title"),
-  log: document.getElementById("log"),
-  logEmpty: document.getElementById("log-empty"),
-  headerControls: document.getElementById("header-controls"),
+  themeToggle: document.getElementById("theme-toggle"),
+  searchInput: document.getElementById("search-input"),
+  searchClear: document.getElementById("search-clear"),
   dateNav: document.getElementById("date-nav"),
   datePrev: document.getElementById("date-prev"),
   dateNext: document.getElementById("date-next"),
-  chart: document.getElementById("chart"),
-  heatmap: document.getElementById("heatmap"),
+  logDate: document.getElementById("log-date"),
+  reportActions: document.querySelector(".report-actions"),
   dlMd: document.getElementById("dl-md"),
   dlPdf: document.getElementById("dl-pdf"),
-  searchInput: document.getElementById("search-input"),
-  searchClear: document.getElementById("search-clear"),
-  tabFlow: document.getElementById("tab-flow"),
-  tabProjects: document.getElementById("tab-projects"),
-  tabApps: document.getElementById("tab-apps"),
+
+  statTotal: document.getElementById("stat-total"),
+  statFocusTime: document.getElementById("stat-focus-time"),
+  statDeepWork: document.getElementById("stat-deep-work"),
+  statSwitches: document.getElementById("stat-switches"),
+
+  focusRingFill: document.getElementById("focus-ring-fill"),
+  focusRingValue: document.getElementById("focus-ring-value"),
+
+  dayRibbon: document.getElementById("day-ribbon"),
+  ribbonLegend: document.getElementById("ribbon-legend"),
+  ribbonTicks: document.getElementById("ribbon-ticks"),
+
+  log: document.getElementById("log"),
+  logEmpty: document.getElementById("log-empty"),
+  appChart: document.getElementById("app-chart"),
+  projectDonut: document.getElementById("project-donut"),
+  projectDonutLegend: document.getElementById("project-donut-legend"),
+  nudgeCard: document.getElementById("nudge-card"),
+  nudgeAmount: document.getElementById("nudge-amount"),
+  nudgeBtn: document.getElementById("nudge-btn"),
+
+  heatmap: document.getElementById("heatmap"),
+  appsLog: document.getElementById("apps-log"),
+  appsLogEmpty: document.getElementById("apps-log-empty"),
+
   projectManager: document.getElementById("project-manager"),
   pmKeyword: document.getElementById("pm-keyword"),
   pmProject: document.getElementById("pm-project"),
+  pmProjectList: document.getElementById("pm-project-list"),
   pmAddBtn: document.getElementById("pm-add-btn"),
   pmList: document.getElementById("pm-list"),
-};
+  projectsLog: document.getElementById("projects-log"),
+  projectsLogEmpty: document.getElementById("projects-log-empty"),
 
-const EMPTY_DEFAULT_TEXT = el.logEmpty.textContent;
+  queryLog: document.getElementById("query-log"),
+  queryLogEmpty: document.getElementById("query-log-empty"),
+  queryTitle: document.getElementById("query-title"),
+};
 
 function hashColor(name) {
   let h = 0;
@@ -74,7 +97,42 @@ function hashColor(name) {
 function formatSaat(iso) {
   const d = new Date(iso);
   if (isNaN(d)) return iso;
-  return d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+}
+
+const TITLE_APP_SUFFIX_RE = / - (Microsoft​? ?Edge|Google Chrome|Mozilla Firefox)$/i;
+const TITLE_VSCODE_SUFFIX_RE = / - Visual Studio Code( - (Read-only|Modified))?$/i;
+const TITLE_TAB_NOISE_RE = / ve diğer \d+ sayfa/i;
+const TITLE_PROFILE_SUFFIX_RE = / - (Kişisel|Work|İş)$/i;
+
+/**
+ * Ham pencere başlığını "site/uygulama" (primary) ve "sayfa/dosya" (secondary)
+ * olarak ayrıştırır. Tanınmayan biçimler olduğu gibi primary'e düşer.
+ */
+function cleanTitle(raw, app) {
+  let s = (raw || "").trim();
+  if (!s) return { primary: "", secondary: "" };
+
+  s = s.replace(TITLE_VSCODE_SUFFIX_RE, "");
+  s = s.replace(TITLE_APP_SUFFIX_RE, "");
+  s = s.replace(TITLE_TAB_NOISE_RE, "");
+  s = s.replace(TITLE_PROFILE_SUFFIX_RE, "");
+  s = s.trim();
+
+  const isCode = (app || "").toLowerCase() === "code.exe";
+  if (isCode) {
+    const dashIdx = s.lastIndexOf(" - ");
+    if (dashIdx > -1) {
+      return { primary: s.slice(dashIdx + 3).trim(), secondary: s.slice(0, dashIdx).trim() };
+    }
+    return { primary: s, secondary: "" };
+  }
+
+  const pipeIdx = s.lastIndexOf("|");
+  if (pipeIdx > -1) {
+    return { primary: s.slice(pipeIdx + 1).trim(), secondary: s.slice(0, pipeIdx).trim() };
+  }
+  return { primary: s, secondary: "" };
 }
 
 function formatSure(saniye) {
@@ -99,30 +157,133 @@ function maxKey(obj) {
   return entries.reduce((a, b) => (b[1] > a[1] ? b : a));
 }
 
+function clearContainer(container) {
+  container.querySelectorAll(".entry-card").forEach((c) => c.remove());
+}
+
+// --- Bugün sayfası ---
+
 function renderStats(data) {
   el.statTotal.textContent = formatSure(data.toplam_sure);
-  el.statCount.textContent = data.sessions.length;
-  el.statFocus.textContent = data.sessions.length ? `%${data.focus_ratio}` : "—";
-
-  const topProject = maxKey(data.project_totals);
-  el.statProject.textContent = topProject ? `${topProject[0]} (${formatSure(topProject[1])})` : "—";
-
-  const topApp = maxKey(data.app_totals);
-  el.statApp.textContent = topApp ? `${topApp[0]} (${formatSure(topApp[1])})` : "—";
-
+  el.statFocusTime.textContent = formatSure(data.focus_seconds);
+  el.statDeepWork.textContent = formatSure(data.deep_work_seconds);
+  el.statSwitches.textContent = data.sessions.length;
   el.logDate.textContent = formatGun(data.date);
   el.dateNext.disabled = data.date >= todayStr();
 }
 
-function renderChart(data) {
-  const entries = Object.entries(data.project_totals || {}).sort((a, b) => b[1] - a[1]);
-  el.chart.innerHTML = "";
+function renderFocusRing(data) {
+  const hasData = data.sessions.length > 0;
+  const ratio = hasData ? data.focus_ratio : 0;
+  const offset = FOCUS_RING_CIRCUMFERENCE - (ratio / 100) * FOCUS_RING_CIRCUMFERENCE;
+  el.focusRingFill.style.strokeDashoffset = String(offset);
+  el.focusRingValue.textContent = hasData ? `%${ratio}` : "—";
+}
+
+const UNASSIGNED_COLOR = "#5f666e";
+
+function renderDayRibbon(data) {
+  el.dayRibbon.innerHTML = "";
+  const legendSeen = new Map();
+
+  const toMin = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? null : d.getHours() * 60 + d.getMinutes();
+  };
+
+  // Boş saatleri kırpmak için gerçek aktivite aralığını bul (ör. gün 00:00
+  // yerine ilk kayıttan 30dk önce başlasın), en az 4 saatlik bir pencere kalsın.
+  let rangeStart = 1440;
+  let rangeEnd = 0;
+  for (const s of data.sessions) {
+    const a = toMin(s.start_ts);
+    const b = toMin(s.end_ts);
+    if (a === null || b === null) continue;
+    rangeStart = Math.min(rangeStart, a);
+    rangeEnd = Math.max(rangeEnd, b);
+  }
+  if (data.date === todayStr()) {
+    const now = new Date();
+    rangeEnd = Math.max(rangeEnd, now.getHours() * 60 + now.getMinutes());
+  }
+  if (rangeStart > rangeEnd) {
+    rangeStart = 0;
+    rangeEnd = 1440;
+  } else {
+    rangeStart = Math.max(0, rangeStart - 30);
+    rangeEnd = Math.min(1440, rangeEnd + 30);
+    if (rangeEnd - rangeStart < 240) {
+      const mid = (rangeStart + rangeEnd) / 2;
+      rangeStart = Math.max(0, mid - 120);
+      rangeEnd = Math.min(1440, mid + 120);
+    }
+  }
+  const span = rangeEnd - rangeStart;
+
+  for (const s of data.sessions) {
+    const startMin = toMin(s.start_ts);
+    const endMinRaw = toMin(s.end_ts);
+    if (startMin === null || endMinRaw === null) continue;
+    const endMin = Math.max(startMin + 1, endMinRaw);
+    const key = s.project;
+    const color = key ? hashColor(key) : UNASSIGNED_COLOR;
+
+    const seg = document.createElement("div");
+    seg.className = "ribbon-segment";
+    seg.style.left = `${((startMin - rangeStart) / span) * 100}%`;
+    seg.style.width = `${((endMin - startMin) / span) * 100}%`;
+    seg.style.background = color;
+    seg.title = `${key || "Kategorisiz"} · ${formatSaat(s.start_ts)}–${formatSaat(s.end_ts)}`;
+    el.dayRibbon.appendChild(seg);
+
+    if (!legendSeen.has(key || "Kategorisiz")) legendSeen.set(key || "Kategorisiz", color);
+  }
+
+  if (data.date === todayStr()) {
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    if (nowMin >= rangeStart && nowMin <= rangeEnd) {
+      const line = document.createElement("div");
+      line.className = "ribbon-now";
+      line.style.left = `${((nowMin - rangeStart) / span) * 100}%`;
+      line.title = "şimdi";
+      el.dayRibbon.appendChild(line);
+    }
+  }
+
+  el.ribbonTicks.innerHTML = "";
+  const tickCount = 5;
+  for (let i = 0; i < tickCount; i++) {
+    const min = Math.round(rangeStart + (span * i) / (tickCount - 1));
+    const tick = document.createElement("span");
+    tick.textContent = `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+    el.ribbonTicks.appendChild(tick);
+  }
+
+  el.ribbonLegend.innerHTML = "";
+  let i = 0;
+  for (const [name, color] of legendSeen) {
+    if (i++ >= 4) break;
+    const item = document.createElement("div");
+    item.className = "ribbon-legend-item";
+    const dot = document.createElement("span");
+    dot.className = "ribbon-legend-dot";
+    dot.style.background = color;
+    item.append(dot, document.createTextNode(name));
+    el.ribbonLegend.appendChild(item);
+  }
+}
+
+function renderChartInto(container, totals, limit) {
+  container.innerHTML = "";
+  let entries = Object.entries(totals || {}).sort((a, b) => b[1] - a[1]);
+  if (limit) entries = entries.slice(0, limit);
 
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "chart-empty";
-    empty.textContent = "Bu gün için veri yok.";
-    el.chart.appendChild(empty);
+    empty.textContent = "Veri yok.";
+    container.appendChild(empty);
     return;
   }
 
@@ -148,51 +309,82 @@ function renderChart(data) {
     value.textContent = formatSure(seconds);
 
     row.append(label, track, value);
-    el.chart.appendChild(row);
+    container.appendChild(row);
   }
 }
 
-async function loadHeatmap() {
-  try {
-    const res = await fetch("/api/daily-totals?days=30", { cache: "no-store" });
-    const data = await res.json();
-    renderHeatmap(data.days || []);
-  } catch (e) {
-    // bağlantı hatası: sessizce geç
+function renderProjectDonut(data) {
+  const entries = Object.entries(data.project_totals || {}).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((sum, [, v]) => sum + v, 0);
+
+  el.projectDonutLegend.innerHTML = "";
+
+  if (total === 0) {
+    el.projectDonut.style.background = "var(--bg)";
+    const empty = document.createElement("div");
+    empty.className = "donut-empty";
+    empty.textContent = "Bu gün için veri yok.";
+    el.projectDonutLegend.appendChild(empty);
+    return;
   }
+
+  let acc = 0;
+  const stops = [];
+  for (const [name, seconds] of entries) {
+    const startPct = (acc / total) * 100;
+    acc += seconds;
+    const endPct = (acc / total) * 100;
+    const color = hashColor(name);
+    stops.push(`${color} ${startPct}% ${endPct}%`);
+
+    const row = document.createElement("div");
+    row.className = "donut-legend-row";
+    const dot = document.createElement("span");
+    dot.className = "donut-legend-dot";
+    dot.style.background = color;
+    const nameEl = document.createElement("span");
+    nameEl.className = "donut-legend-name";
+    nameEl.textContent = name;
+    const pctEl = document.createElement("span");
+    pctEl.className = "donut-legend-pct";
+    pctEl.textContent = `${Math.round((seconds / total) * 100)}%`;
+    row.append(dot, nameEl, pctEl);
+    el.projectDonutLegend.appendChild(row);
+  }
+  el.projectDonut.style.background = `conic-gradient(${stops.join(", ")})`;
 }
 
-function renderHeatmap(days) {
-  el.heatmap.innerHTML = "";
-  const max = Math.max(1, ...days.map((d) => d.total_seconds));
-
-  for (const d of days) {
-    const cell = document.createElement("div");
-    cell.className = "heatmap-cell";
-    if (d.total_seconds > 0) {
-      const alpha = 0.15 + 0.85 * (d.total_seconds / max);
-      cell.style.background = `rgba(91, 140, 255, ${alpha.toFixed(2)})`;
-      cell.style.borderColor = "transparent";
-    }
-    cell.title = `${d.date} · ${formatSure(d.total_seconds)}`;
-    el.heatmap.appendChild(cell);
+function renderUnassignedNudge(data) {
+  const total = data.toplam_sure || 0;
+  const unassigned = (data.project_totals || {})["Diğer"] || 0;
+  if (total < 300 || unassigned / total < 0.15) {
+    el.nudgeCard.hidden = true;
+    return;
   }
+  el.nudgeCard.hidden = false;
+  el.nudgeAmount.textContent = formatSure(unassigned);
 }
 
-function makeProjectControl(session, color) {
+el.nudgeBtn.addEventListener("click", () => {
+  document.querySelector('.sidebar-item[data-page="projects"]').click();
+});
+
+function makeProjectControl(displayObj, color, targetSessions) {
   const wrap = document.createElement("span");
+  const targets = targetSessions || [displayObj];
 
   function renderView() {
     wrap.innerHTML = "";
     const badge = document.createElement("span");
     badge.className = "entry-project";
     badge.title = "Projeyi değiştirmek için tıkla";
-    if (session.project) {
-      badge.textContent = session.project;
+    if (displayObj.project) {
+      badge.textContent = displayObj.project;
       badge.style.color = color;
     } else {
       badge.textContent = "+ proje";
       badge.style.color = "var(--text-faint)";
+      badge.dataset.empty = "1";
     }
     badge.addEventListener("click", renderEdit);
     wrap.appendChild(badge);
@@ -212,22 +404,27 @@ function makeProjectControl(session, color) {
       const opt = document.createElement("option");
       opt.value = p;
       opt.textContent = p;
-      if (p === session.project) opt.selected = true;
+      if (p === displayObj.project) opt.selected = true;
       select.appendChild(opt);
     }
 
     select.addEventListener("change", async () => {
       const newProject = select.value || null;
-      session.project = newProject;
+      displayObj.project = newProject;
+      for (const t of targets) t.project = newProject;
       renderView();
       try {
-        await fetch("/api/session/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: session.id, project: newProject }),
-        });
+        await Promise.all(
+          targets.map((t) =>
+            fetch("/api/session/update", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: t.id, project: newProject }),
+            })
+          )
+        );
       } catch (e) {
-        // sessizce yut; bir sonraki yenilemede sunucudaki gerçek durum görünür
+        // sessizce yut
       }
     });
     select.addEventListener("blur", renderView);
@@ -279,11 +476,18 @@ function makeEntryCard(session, opts = {}) {
 
   card.appendChild(head);
 
-  if (session.title) {
+  const { primary, secondary } = cleanTitle(session.title, session.app);
+  if (primary) {
     const title = document.createElement("div");
     title.className = "entry-title";
-    title.textContent = session.title;
+    title.textContent = primary;
     card.appendChild(title);
+  }
+  if (secondary) {
+    const sub = document.createElement("div");
+    sub.className = "entry-subtitle";
+    sub.textContent = secondary;
+    card.appendChild(sub);
   }
 
   if (session.text && session.text.trim()) {
@@ -296,43 +500,177 @@ function makeEntryCard(session, opts = {}) {
   return card;
 }
 
-function makeProjectSummaryCard(item) {
+// --- oturum gruplama: aynı uygulama + aynı site/dosya kökü + 2dk'dan az
+// boşluk olan ardışık oturumlar tek bir "blok" kartında birleşir. ---
+
+const GROUP_GAP_S = 120;
+
+function groupSessions(sessions) {
+  const blocks = [];
+  for (const s of sessions) {
+    const { primary } = cleanTitle(s.title, s.app);
+    const rootKey = `${s.app}::${primary}`;
+    const last = blocks[blocks.length - 1];
+    if (last && last.rootKey === rootKey) {
+      const gap = (new Date(s.start_ts) - new Date(last.end_ts)) / 1000;
+      if (gap <= GROUP_GAP_S) {
+        last.sessions.push(s);
+        last.end_ts = s.end_ts;
+        last.duration_s += s.duration_s;
+        if (s.text && s.text.trim()) last.texts.push(s.text.trim());
+        if (s.project) last.project = s.project;
+        continue;
+      }
+    }
+    blocks.push({
+      rootKey,
+      app: s.app,
+      project: s.project,
+      start_ts: s.start_ts,
+      end_ts: s.end_ts,
+      duration_s: s.duration_s,
+      title: s.title,
+      sessions: [s],
+      texts: s.text && s.text.trim() ? [s.text.trim()] : [],
+    });
+  }
+  return blocks;
+}
+
+function makeSessionBlock(block, opts = {}) {
   const card = document.createElement("div");
   card.className = "entry-card";
-  card.style.cursor = "pointer";
 
-  const color = hashColor(item.project);
+  const app = block.app || "bilinmeyen";
+  const appColor = hashColor(app);
+  const color = block.project ? hashColor(block.project) : "var(--text-faint)";
   card.style.borderLeftColor = color;
 
   const head = document.createElement("div");
   head.className = "entry-head";
 
+  const timeEl = document.createElement("span");
+  timeEl.className = "entry-time";
+  timeEl.textContent = block.sessions.length > 1
+    ? `${formatSaat(block.start_ts)}–${formatSaat(block.end_ts)}`
+    : formatSaat(block.start_ts);
+  head.appendChild(timeEl);
+
+  if (opts.showDate) {
+    const dateBadge = document.createElement("span");
+    dateBadge.className = "entry-date";
+    dateBadge.textContent = (block.start_ts || "").slice(0, 10);
+    head.appendChild(dateBadge);
+  }
+
+  const badge = document.createElement("span");
+  badge.className = "entry-badge";
+  badge.textContent = app;
+  badge.style.color = appColor;
+  badge.style.background = appColor + "22";
+  head.appendChild(badge);
+
+  head.appendChild(makeProjectControl(block, color === "var(--text-faint)" ? appColor : color, block.sessions));
+
+  if (block.sessions.length > 1) {
+    const countEl = document.createElement("span");
+    countEl.className = "entry-count";
+    countEl.textContent = `${block.sessions.length} kayıt`;
+    head.appendChild(countEl);
+  }
+
+  const duration = document.createElement("span");
+  duration.className = "entry-duration";
+  duration.textContent = formatSure(block.duration_s);
+  head.appendChild(duration);
+
+  card.appendChild(head);
+
+  const { primary, secondary } = cleanTitle(block.title, block.app);
+  if (primary) {
+    const title = document.createElement("div");
+    title.className = "entry-title";
+    title.textContent = primary;
+    card.appendChild(title);
+  }
+  if (secondary) {
+    const sub = document.createElement("div");
+    sub.className = "entry-subtitle";
+    sub.textContent = secondary;
+    card.appendChild(sub);
+  }
+
+  if (block.texts.length > 0) {
+    const text = document.createElement("div");
+    text.className = "entry-text";
+    text.textContent = block.texts.join("\n\n");
+    card.appendChild(text);
+  }
+
+  if (block.sessions.length > 1) {
+    const blockKey = block.sessions[0].id;
+    const expanded = state.expandedBlocks.has(blockKey);
+
+    const toggle = document.createElement("button");
+    toggle.className = "entry-expand-toggle";
+    toggle.type = "button";
+    toggle.textContent = expanded ? "▾ ham kayıtları gizle" : `▸ ham kayıtları göster (${block.sessions.length})`;
+
+    const rawList = document.createElement("div");
+    rawList.className = "entry-raw-list";
+    rawList.hidden = !expanded;
+    for (const s of block.sessions) {
+      const row = document.createElement("div");
+      row.className = "entry-raw-row";
+      row.textContent = `${formatSaat(s.start_ts)} · ${s.title || ""}`;
+      rawList.appendChild(row);
+    }
+
+    toggle.addEventListener("click", () => {
+      const willExpand = rawList.hidden;
+      rawList.hidden = !willExpand;
+      toggle.textContent = willExpand ? "▾ ham kayıtları gizle" : `▸ ham kayıtları göster (${block.sessions.length})`;
+      if (willExpand) state.expandedBlocks.add(blockKey);
+      else state.expandedBlocks.delete(blockKey);
+    });
+
+    card.appendChild(toggle);
+    card.appendChild(rawList);
+  }
+
+  return card;
+}
+
+function makeProjectSummaryCard(item) {
+  const card = document.createElement("div");
+  card.className = "entry-card";
+  card.style.cursor = "pointer";
+  const color = hashColor(item.project);
+  card.style.borderLeftColor = color;
+
+  const head = document.createElement("div");
+  head.className = "entry-head";
   const badge = document.createElement("span");
   badge.className = "entry-badge";
   badge.textContent = item.project;
   badge.style.color = color;
   badge.style.background = color + "22";
   head.appendChild(badge);
-
   const duration = document.createElement("span");
   duration.className = "entry-duration";
   duration.textContent = formatSure(item.total_seconds);
   head.appendChild(duration);
-
   card.appendChild(head);
 
   const meta = document.createElement("div");
   meta.className = "entry-title";
-  const aralik = item.first_date === item.last_date
-    ? item.first_date
-    : `${item.first_date} – ${item.last_date}`;
+  const aralik = item.first_date === item.last_date ? item.first_date : `${item.first_date} – ${item.last_date}`;
   meta.textContent = `${item.session_count} oturum · ${aralik}`;
   card.appendChild(meta);
 
   card.addEventListener("click", () => {
     runQuery({ project: item.project }, `${item.project} — tüm kayıtlar`);
   });
-
   return card;
 }
 
@@ -340,78 +678,61 @@ function makeAppSummaryCard(item) {
   const card = document.createElement("div");
   card.className = "entry-card";
   card.style.cursor = "pointer";
-
   const color = hashColor(item.app);
   card.style.borderLeftColor = color;
 
   const head = document.createElement("div");
   head.className = "entry-head";
-
   const badge = document.createElement("span");
   badge.className = "entry-badge";
   badge.textContent = item.app;
   badge.style.color = color;
   badge.style.background = color + "22";
   head.appendChild(badge);
-
   const duration = document.createElement("span");
   duration.className = "entry-duration";
   duration.textContent = formatSure(item.total_seconds);
   head.appendChild(duration);
-
   card.appendChild(head);
 
   const meta = document.createElement("div");
   meta.className = "entry-title";
-  const aralik = item.first_date === item.last_date
-    ? item.first_date
-    : `${item.first_date} – ${item.last_date}`;
+  const aralik = item.first_date === item.last_date ? item.first_date : `${item.first_date} – ${item.last_date}`;
   meta.textContent = `${item.session_count} oturum · ${aralik}`;
   card.appendChild(meta);
 
   card.addEventListener("click", () => {
     runQuery({ app: item.app }, `${item.app} — tüm kayıtlar`);
   });
-
   return card;
 }
 
-function renderSessions(sessions) {
+function renderBlocksInto(sessions, container, emptyEl, opts = {}) {
+  clearContainer(container);
   if (sessions.length === 0) {
-    el.logEmpty.style.display = "block";
+    emptyEl.style.display = "block";
     return;
   }
-  el.logEmpty.style.display = "none";
+  emptyEl.style.display = "none";
 
-  const nearBottom = el.log.scrollHeight - el.log.scrollTop - el.log.clientHeight < 40;
-
-  for (const s of sessions) {
-    if (state.renderedIds.has(s.id)) continue;
-    state.renderedIds.add(s.id);
-    el.log.appendChild(makeEntryCard(s));
+  const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+  for (const block of groupSessions(sessions)) {
+    container.appendChild(makeSessionBlock(block, opts));
   }
-
-  if (nearBottom) {
-    el.log.scrollTop = el.log.scrollHeight;
-  }
-}
-
-function clearLog() {
-  el.log.querySelectorAll(".entry-card").forEach((card) => card.remove());
-  state.renderedIds = new Set();
+  if (nearBottom) container.scrollTop = container.scrollHeight;
 }
 
 function goToDate(dateStr) {
   if (dateStr > todayStr()) return;
   state.currentDate = dateStr;
   state.followingToday = dateStr === todayStr();
-  clearLog();
+  state.expandedBlocks = new Set();
+  state.lastRenderKey = "";
+  clearContainer(el.log);
   poll();
 }
 
 function addDays(dateStr, days) {
-  // Saat dilimi kaymasından etkilenmemek için tarihi UTC uzayında,
-  // saatten bağımsız salt bir takvim günü olarak işler.
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + days);
@@ -425,26 +746,26 @@ function shiftDate(days) {
   goToDate(addDays(state.currentDate, days));
 }
 
-async function loadProjects() {
-  try {
-    const res = await fetch("/api/projects");
-    const data = await res.json();
-    state.projects = data.projects || [];
-  } catch (e) {
-    state.projects = [];
-  }
-}
-
 async function poll() {
-  if (state.querying || state.mode !== "flow") return;
+  if (state.querying || state.page !== "home") return;
   try {
     const res = await fetch(`/api/today?date=${state.currentDate}`, { cache: "no-store" });
     if (!res.ok) throw new Error("sunucu hatası");
     const data = await res.json();
 
     renderStats(data);
-    renderChart(data);
-    renderSessions(data.sessions);
+    renderFocusRing(data);
+    renderDayRibbon(data);
+    renderChartInto(el.appChart, data.app_totals, 5);
+    renderProjectDonut(data);
+    renderUnassignedNudge(data);
+
+    const last = data.sessions[data.sessions.length - 1];
+    const renderKey = `${data.sessions.length}:${last ? last.id : ""}`;
+    if (renderKey !== state.lastRenderKey) {
+      state.lastRenderKey = renderKey;
+      renderBlocksInto(data.sessions, el.log, el.logEmpty);
+    }
 
     const isToday = state.currentDate === todayStr();
     el.status.classList.toggle("live", isToday);
@@ -455,165 +776,83 @@ async function poll() {
   }
 }
 
-async function loadProjectSummary() {
-  if (state.querying || state.mode !== "projects") return;
-  el.logEmpty.textContent = EMPTY_DEFAULT_TEXT;
-  try {
-    const res = await fetch("/api/projects/summary", { cache: "no-store" });
-    const data = await res.json();
+// --- Analitik sayfası ---
 
-    clearLog();
-    if (data.projects.length === 0) {
-      el.logEmpty.textContent = "Henüz proje verisi yok.";
-      el.logEmpty.style.display = "block";
-    } else {
-      el.logEmpty.style.display = "none";
-      for (const item of data.projects) {
-        el.log.appendChild(makeProjectSummaryCard(item));
-      }
-    }
+async function loadHeatmap() {
+  try {
+    const res = await fetch("/api/daily-totals?days=30", { cache: "no-store" });
+    const data = await res.json();
+    renderHeatmap(data.days || []);
   } catch (e) {
-    // bağlantı hatası: sessizce geç
+    // sessizce geç
+  }
+}
+
+function renderHeatmap(days) {
+  el.heatmap.innerHTML = "";
+  const max = Math.max(1, ...days.map((d) => d.total_seconds));
+  for (const d of days) {
+    const cell = document.createElement("div");
+    cell.className = "heatmap-cell";
+    if (d.total_seconds > 0) {
+      const alpha = 0.15 + 0.85 * (d.total_seconds / max);
+      cell.style.background = `rgba(52, 211, 153, ${alpha.toFixed(2)})`;
+      cell.style.borderColor = "transparent";
+    }
+    cell.title = `${d.date} · ${formatSure(d.total_seconds)}`;
+    el.heatmap.appendChild(cell);
   }
 }
 
 async function loadAppSummary() {
-  if (state.querying || state.mode !== "apps") return;
-  el.logEmpty.textContent = EMPTY_DEFAULT_TEXT;
   try {
     const res = await fetch("/api/apps/summary", { cache: "no-store" });
     const data = await res.json();
-
-    clearLog();
+    clearContainer(el.appsLog);
     if (data.apps.length === 0) {
-      el.logEmpty.textContent = "Henüz uygulama verisi yok.";
-      el.logEmpty.style.display = "block";
+      el.appsLogEmpty.style.display = "block";
     } else {
-      el.logEmpty.style.display = "none";
-      for (const item of data.apps) {
-        el.log.appendChild(makeAppSummaryCard(item));
-      }
+      el.appsLogEmpty.style.display = "none";
+      for (const item of data.apps) el.appsLog.appendChild(makeAppSummaryCard(item));
     }
   } catch (e) {
-    // bağlantı hatası: sessizce geç
+    // sessizce geç
   }
 }
 
-function renderBaseView() {
-  if (state.mode === "projects") {
-    loadProjectSummary();
-  } else if (state.mode === "apps") {
-    loadAppSummary();
-  } else {
-    poll();
-  }
-}
+// --- Projeler sayfası ---
 
-// --- sekmeler (Akış / Projeler / Uygulamalar) ---
-
-function setMode(mode) {
-  state.mode = mode;
-  el.tabFlow.classList.toggle("active", mode === "flow");
-  el.tabProjects.classList.toggle("active", mode === "projects");
-  el.tabApps.classList.toggle("active", mode === "apps");
-  el.headerControls.style.visibility = mode === "flow" ? "visible" : "hidden";
-  el.projectManager.hidden = mode !== "projects";
-  if (mode === "projects") loadProjectKeywords();
-  if (state.querying) {
-    exitQuery();
-  } else {
-    clearLog();
-    renderBaseView();
-  }
-}
-
-el.tabFlow.addEventListener("click", () => setMode("flow"));
-el.tabProjects.addEventListener("click", () => setMode("projects"));
-el.tabApps.addEventListener("click", () => setMode("apps"));
-
-// --- arama / proje filtresi (ikisi de aynı "sorgu" görünümünü kullanır) ---
-
-let queryDebounceTimer = null;
-
-async function runQuery(params, titleText) {
-  state.querying = true;
-  el.dateNav.style.visibility = "hidden";
-  el.logPanelTitle.hidden = false;
-  el.logPanelTitle.textContent = titleText;
-  el.searchClear.hidden = false;
-
-  const qs = new URLSearchParams();
-  if (params.q) qs.set("q", params.q);
-  if (params.project) qs.set("project", params.project);
-
+async function loadProjectSummary() {
   try {
-    const res = await fetch(`/api/search?${qs.toString()}`, { cache: "no-store" });
+    const res = await fetch("/api/projects/summary", { cache: "no-store" });
     const data = await res.json();
-
-    clearLog();
-    if (data.sessions.length === 0) {
-      el.logEmpty.textContent = "Sonuç bulunamadı.";
-      el.logEmpty.style.display = "block";
+    clearContainer(el.projectsLog);
+    if (data.projects.length === 0) {
+      el.projectsLogEmpty.style.display = "block";
     } else {
-      el.logEmpty.style.display = "none";
-      for (const s of data.sessions) {
-        state.renderedIds.add(s.id);
-        el.log.appendChild(makeEntryCard(s, { showDate: true }));
-      }
+      el.projectsLogEmpty.style.display = "none";
+      for (const item of data.projects) el.projectsLog.appendChild(makeProjectSummaryCard(item));
     }
   } catch (e) {
-    // bağlantı hatası: sessizce geç
+    // sessizce geç
   }
 }
 
-function exitQuery() {
-  if (!state.querying) return;
-  state.querying = false;
-  el.dateNav.style.visibility = state.mode === "flow" ? "visible" : "hidden";
-  el.logPanelTitle.hidden = true;
-  el.searchClear.hidden = el.searchInput.value.trim().length === 0;
-  el.logEmpty.textContent = EMPTY_DEFAULT_TEXT;
-  clearLog();
-  renderBaseView();
-}
-
-el.searchInput.addEventListener("input", () => {
-  clearTimeout(queryDebounceTimer);
-  const q = el.searchInput.value.trim();
-  el.searchClear.hidden = q.length === 0;
-  queryDebounceTimer = setTimeout(() => {
-    if (q) runQuery({ q }, `"${q}" için sonuçlar`);
-    else exitQuery();
-  }, QUERY_DEBOUNCE_MS);
-});
-
-el.refreshBtn.addEventListener("click", () => location.reload());
-
-// Adres çubuğu/menü olmayan native pencerede F5 varsayılan olarak çalışmayabilir.
-window.addEventListener("keydown", (e) => {
-  if (e.key === "F5" || (e.ctrlKey && e.key.toLowerCase() === "r")) {
-    e.preventDefault();
-    location.reload();
+async function loadProjects() {
+  try {
+    const res = await fetch("/api/projects");
+    const data = await res.json();
+    state.projects = data.projects || [];
+  } catch (e) {
+    state.projects = [];
   }
-});
-
-el.searchClear.addEventListener("click", () => {
-  el.searchInput.value = "";
-  el.searchClear.hidden = true;
-  exitQuery();
-});
-
-el.datePrev.addEventListener("click", () => shiftDate(-1));
-el.dateNext.addEventListener("click", () => shiftDate(1));
-
-el.dlMd.addEventListener("click", () => {
-  window.location.href = `/api/report.md?date=${state.currentDate}`;
-});
-el.dlPdf.addEventListener("click", () => {
-  window.open(`/report.html?date=${state.currentDate}`, "_blank");
-});
-
-// --- proje yönetimi (anahtar kelime -> proje kuralları) ---
+  el.pmProjectList.innerHTML = "";
+  for (const p of state.projects) {
+    const opt = document.createElement("option");
+    opt.value = p;
+    el.pmProjectList.appendChild(opt);
+  }
+}
 
 async function loadProjectKeywords() {
   try {
@@ -621,13 +860,12 @@ async function loadProjectKeywords() {
     const data = await res.json();
     renderProjectKeywords(data.keywords || []);
   } catch (e) {
-    // bağlantı hatası: sessizce geç
+    // sessizce geç
   }
 }
 
 function renderProjectKeywords(keywords) {
   el.pmList.innerHTML = "";
-
   if (keywords.length === 0) {
     const empty = document.createElement("div");
     empty.className = "pm-empty";
@@ -635,23 +873,18 @@ function renderProjectKeywords(keywords) {
     el.pmList.appendChild(empty);
     return;
   }
-
   for (const kw of keywords) {
     const row = document.createElement("div");
     row.className = "pm-row";
-
     const keyword = document.createElement("span");
     keyword.className = "pm-keyword";
     keyword.textContent = kw.keyword;
-
     const arrow = document.createElement("span");
     arrow.className = "pm-arrow";
     arrow.textContent = "→";
-
     const project = document.createElement("span");
     project.className = "pm-project";
     project.textContent = kw.project;
-
     const del = document.createElement("button");
     del.className = "pm-delete";
     del.type = "button";
@@ -670,7 +903,6 @@ function renderProjectKeywords(keywords) {
         // sessizce yut
       }
     });
-
     row.append(keyword, arrow, project, del);
     el.pmList.appendChild(row);
   }
@@ -680,7 +912,6 @@ el.pmAddBtn.addEventListener("click", async () => {
   const keyword = el.pmKeyword.value.trim();
   const project = el.pmProject.value.trim();
   if (!keyword || !project) return;
-
   try {
     await fetch("/api/project-keywords/add", {
       method: "POST",
@@ -696,14 +927,163 @@ el.pmAddBtn.addEventListener("click", async () => {
   }
 });
 
+// --- sayfa gezinme ---
+
+function showPageSection(id) {
+  document.querySelectorAll(".page").forEach((sec) => (sec.hidden = true));
+  document.getElementById(id).hidden = false;
+}
+
+function renderBaseView() {
+  if (state.page === "home") poll();
+  else if (state.page === "analytics") {
+    loadHeatmap();
+    loadAppSummary();
+  } else if (state.page === "projects") {
+    loadProjectKeywords();
+    loadProjectSummary();
+  }
+}
+
+function setPage(page) {
+  state.page = page;
+  document.querySelectorAll(".sidebar-item").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.page === page);
+  });
+  showPageSection(`page-${page}`);
+  el.pageTitle.textContent = PAGE_TITLES[page] || "";
+  const isHome = page === "home";
+  el.dateNav.style.visibility = isHome ? "visible" : "hidden";
+  el.reportActions.style.visibility = isHome ? "visible" : "hidden";
+  renderBaseView();
+}
+
+document.querySelectorAll(".sidebar-item").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (state.querying) {
+      state.querying = false;
+      el.searchInput.value = "";
+      el.searchClear.hidden = true;
+    }
+    setPage(btn.dataset.page);
+  });
+});
+
+// --- arama / proje-uygulama filtresi ---
+
+let queryDebounceTimer = null;
+
+async function runQuery(params, titleText) {
+  state.querying = true;
+  showPageSection("page-query");
+  el.pageTitle.textContent = "Arama";
+  el.queryTitle.textContent = titleText;
+  el.dateNav.style.visibility = "hidden";
+  el.reportActions.style.visibility = "hidden";
+  el.searchClear.hidden = false;
+
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.project) qs.set("project", params.project);
+  if (params.app) qs.set("app", params.app);
+
+  try {
+    const res = await fetch(`/api/search?${qs.toString()}`, { cache: "no-store" });
+    const data = await res.json();
+    renderBlocksInto(data.sessions, el.queryLog, el.queryLogEmpty, { showDate: true });
+  } catch (e) {
+    // sessizce geç
+  }
+}
+
+function exitQuery() {
+  if (!state.querying) return;
+  state.querying = false;
+  showPageSection(`page-${state.page}`);
+  el.pageTitle.textContent = PAGE_TITLES[state.page] || "";
+  const isHome = state.page === "home";
+  el.dateNav.style.visibility = isHome ? "visible" : "hidden";
+  el.reportActions.style.visibility = isHome ? "visible" : "hidden";
+  renderBaseView();
+}
+
+el.searchInput.addEventListener("input", () => {
+  clearTimeout(queryDebounceTimer);
+  const q = el.searchInput.value.trim();
+  el.searchClear.hidden = q.length === 0;
+  queryDebounceTimer = setTimeout(() => {
+    if (q) runQuery({ q }, `"${q}" için sonuçlar`);
+    else exitQuery();
+  }, QUERY_DEBOUNCE_MS);
+});
+
+el.searchClear.addEventListener("click", () => {
+  el.searchInput.value = "";
+  el.searchClear.hidden = true;
+  exitQuery();
+});
+
+el.datePrev.addEventListener("click", () => shiftDate(-1));
+el.dateNext.addEventListener("click", () => shiftDate(1));
+
+el.dlMd.addEventListener("click", () => {
+  window.location.href = `/api/report.md?date=${state.currentDate}`;
+});
+el.dlPdf.addEventListener("click", () => {
+  window.open(`/report.html?date=${state.currentDate}`, "_blank");
+});
+
+el.refreshBtn.addEventListener("click", () => location.reload());
+window.addEventListener("keydown", (e) => {
+  if (e.key === "F5" || (e.ctrlKey && e.key.toLowerCase() === "r")) {
+    e.preventDefault();
+    location.reload();
+  }
+});
+
+// --- tema (açık/koyu) ---
+
+const THEME_KEY = "piyon-log-theme";
+
+function applyTheme(theme) {
+  if (theme === "light") {
+    document.documentElement.setAttribute("data-theme", "light");
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+}
+
+function initTheme() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(THEME_KEY);
+  } catch (e) {
+    // localStorage kapalıysa sessizce varsayılana düş
+  }
+  applyTheme(saved === "light" ? "light" : "dark");
+}
+
+el.themeToggle.addEventListener("click", () => {
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  const next = isLight ? "dark" : "light";
+  applyTheme(next);
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (e) {
+    // sessizce yut
+  }
+});
+
+initTheme();
+
+// --- başlangıç ---
+
 loadProjects();
-loadHeatmap();
-poll();
+setPage("home");
 setInterval(() => {
-  if (state.querying || state.mode !== "flow") return;
+  if (state.querying || state.page !== "home") return;
   const t = todayStr();
   if (state.followingToday && state.currentDate !== t) {
-    // gece yarisini gectik: "bugun"u takip ediyorsak otomatik olarak yeni gune gec
     goToDate(t);
     return;
   }

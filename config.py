@@ -67,6 +67,10 @@ MIN_TITLE_CHANGE_S = 5
 # sayılır; daha kısaları "dağınık/geçiş" olarak değerlendirilir.
 FOCUS_MIN_SESSION_S = 180
 
+# Derin çalışma: bu süreden uzun, gerçekten kesintisiz bloklar. Odak
+# skorundan daha katı bir eşiktir.
+DEEP_WORK_MIN_SESSION_S = 900
+
 # --- Piyon proje eşleştirme (yalnızca ilk kurulum tohumu) ---
 # Veritabanı ilk kez oluşturulurken bu eşleşmeler `project_keywords`
 # tablosuna kopyalanır. Sonrasında projeler artık buradan değil, panelin

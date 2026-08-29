@@ -38,16 +38,16 @@ CREATE TABLE IF NOT EXISTS project_keywords (
 """
 
 
-def _seed_project_keywords_if_empty():
-    """Tablo boşsa config.PROJECT_MAP'ten varsayılan eşleşmeleri yükler.
+def _seed_project_keywords():
+    """config.PROJECT_MAP'ten varsayılan eşleşmeleri yükler.
 
-    Böylece ilk kurulumda hiçbir proje kaybolmaz; sonrasında kullanıcı
-    panelden ekleyip silebilir.
+    Yalnızca tablo İLK KEZ oluşturulduğunda çağrılır (bkz. init_db). Satır
+    sayısına değil tablonun var olup olmadığına bakılır — yoksa kullanıcı
+    panelden bilerek tüm kuralları sildiğinde (tablo var ama boş), bir
+    sonraki açılışta varsayılanlar sessizce geri gelirdi. Bu gerçek bir
+    hataydı ve düzeltildi.
     """
     with get_connection() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM project_keywords").fetchone()[0]
-        if count > 0:
-            return
         conn.executemany(
             "INSERT OR IGNORE INTO project_keywords (keyword, project) VALUES (?, ?)",
             list(config.PROJECT_MAP.items()),
@@ -121,16 +121,23 @@ def init_db():
     """Veritabanı ve tabloları (yoksa) oluşturur.
 
     Eski, şifresiz bir veritabanı bulunursa (önceki sürümlerden kalma)
-    burada bir kereliğine şifreli hâle taşınır.
+    burada bir kereliğine şifreli hâle taşınır. Varsayılan proje kuralları
+    da yalnızca tablo ilk kez oluşturulduğunda bir kereliğine eklenir.
     """
     config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     key = crypto_key.get_or_create_key()
     _migrate_plaintext_to_encrypted(key)
 
     with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='project_keywords'"
+        )
+        is_first_run = cur.fetchone() is None
         conn.executescript(SCHEMA)
         conn.commit()
-    _seed_project_keywords_if_empty()
+
+    if is_first_run:
+        _seed_project_keywords()
 
 
 def insert_session(session: dict):
